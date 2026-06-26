@@ -331,7 +331,7 @@ export default function App() {
                     onChange={(e) => setSelectedCategory(e.target.value)}
                     className="w-full bg-slate-800 border border-slate-600 text-white rounded-lg p-3 outline-none focus:border-blue-500 transition-colors cursor-pointer text-sm sm:text-base"
                   >
-                    <option value="pokemon">Pokémon (Gen 1)</option>
+                    <option value="pokemon">Pokémon</option>
                   </select>
                 </div>
                 <div>

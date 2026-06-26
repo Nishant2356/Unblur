@@ -8,9 +8,9 @@ const pool = new Pool({
 
 async function seed() {
   try {
-    console.log("Fetching first 151 Pokemon...");
+    console.log("Fetching first 1000 Pokemon...");
     // Using Node native fetch (Node 18+)
-    const res = await fetch("https://pokeapi.co/api/v2/pokemon?limit=151");
+    const res = await fetch("https://pokeapi.co/api/v2/pokemon?limit=1000");
     const data = await res.json();
     
     console.log("Ensuring trivia_images table exists...");
@@ -39,11 +39,11 @@ async function seed() {
       const answer = rawName.charAt(0).toUpperCase() + rawName.slice(1);
       
       // Aliases (e.g. mr-mime -> mr mime)
-      const aliases = [rawName, rawName.replace('-', ' '), rawName.replace('-', '')];
+      const aliases = [...new Set([rawName, rawName.replace(/-/g, ' '), rawName.replace(/-/g, '')])];
 
       await pool.query(
         'INSERT INTO trivia_images (url, answer, aliases, category) VALUES ($1, $2, $3, $4)',
-        [url, answer, aliases, 'pokemon']
+        [url, answer, JSON.stringify(aliases), 'pokemon']
       );
       inserted++;
       if (inserted % 25 === 0) console.log(`Inserted ${inserted}...`);
