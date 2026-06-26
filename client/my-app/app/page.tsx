@@ -329,6 +329,7 @@ export default function App() {
                   <option value="places">World Places</option>
                   <option value="entertainment">Entertainment</option>
                   <option value="flags">World Flags</option>
+                  <option value="pokemon">Pokémon (Gen 1)</option>
                 </select>
               </div>
 
