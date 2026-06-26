@@ -47,22 +47,23 @@ export default function App() {
   const [roomId, setRoomId] = useState<string>('');
   const [joinCodeInput, setJoinCodeInput] = useState<string>('');
   const [playerName, setPlayerName] = useState<string>('');
-  
+
   // Game State
   const [gameState, setGameState] = useState<GameStatus>('lobby');
   const [currentRound, setCurrentRound] = useState<number>(0);
   const [timeLeft, setTimeLeft] = useState<number>(30);
   const [players, setPlayers] = useState<Player[]>([]);
   const [currentImageUrl, setCurrentImageUrl] = useState<string>('');
-  
+
   // Local UI State
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [guessInput, setGuessInput] = useState<string>('');
   const [myId, setMyId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>('');
-  
-  const [selectedCategory, setSelectedCategory] = useState<string>('random');
-  const [activeCategory, setActiveCategory] = useState<string>('random');
+
+  const [selectedCategory, setSelectedCategory] = useState<string>('pokemon');
+  const [numberOfRounds, setNumberOfRounds] = useState<number>(3);
+  const [activeCategory, setActiveCategory] = useState<string>('pokemon');
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -118,6 +119,10 @@ export default function App() {
       setTimeLeft(serverTime);
     });
 
+    socket.on('game_starting', () => {
+      setGameState('starting');
+    });
+
     socket.on('round_ended', () => {
       setGameState('round_end');
     });
@@ -133,6 +138,7 @@ export default function App() {
       socket.off('initial_state');
       socket.off('leaderboard_update');
       socket.off('chat_message');
+      socket.off('game_starting');
       socket.off('round_started');
       socket.off('timer_update');
       socket.off('round_ended');
@@ -145,7 +151,7 @@ export default function App() {
     if (!playerName.trim()) { setErrorMsg("Please enter your name first."); return; }
     socket.emit('create_room', playerName.trim());
   };
-  
+
   const handleJoinRoom = (e: React.FormEvent) => {
     e.preventDefault();
     if (!playerName.trim()) { setErrorMsg("Please enter your name first."); return; }
@@ -156,7 +162,7 @@ export default function App() {
 
   const startGame = () => {
     setGameState('starting');
-    socket.emit('start_game', selectedCategory); 
+    socket.emit('start_game', selectedCategory, numberOfRounds);
   };
 
   const submitGuess = (e: React.FormEvent<HTMLFormElement>) => {
@@ -167,7 +173,7 @@ export default function App() {
   };
 
   const me = players.find(p => p.id === myId);
-  const currentBlur = Math.max(0, timeLeft * 1.5); 
+  const currentBlur = Math.max(0, timeLeft * 1.5);
 
   // ==========================================
   // VIEW: LANDING PAGE
@@ -183,7 +189,7 @@ export default function App() {
             <h1 className="text-4xl font-extrabold tracking-tight mb-2">Unblur<span className="text-blue-400">.io</span></h1>
             <p className="text-slate-400">The ultimate image guessing game.</p>
           </div>
-          
+
           <div className="p-8 space-y-8">
             {errorMsg && (
               <div className="bg-red-500/10 border border-red-500/50 text-red-400 p-3 rounded-lg text-sm text-center font-medium">
@@ -193,8 +199,8 @@ export default function App() {
 
             <div className="space-y-2 text-left">
               <label className="text-sm font-semibold text-slate-300 ml-1">Your Name</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 placeholder="Enter your nickname"
                 value={playerName}
                 onChange={(e) => setPlayerName(e.target.value)}
@@ -204,7 +210,7 @@ export default function App() {
               />
             </div>
 
-            <button 
+            <button
               onClick={handleCreateRoom}
               className="w-full bg-blue-600 hover:bg-blue-500 text-white p-4 rounded-xl font-bold text-lg transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20"
               suppressHydrationWarning
@@ -221,8 +227,8 @@ export default function App() {
             <form onSubmit={handleJoinRoom} className="space-y-3">
               <label className="text-sm font-semibold text-slate-300">Join a Friend's Room</label>
               <div className="flex gap-2">
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   placeholder="Enter 4-letter Code"
                   value={joinCodeInput}
                   onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
@@ -246,7 +252,7 @@ export default function App() {
   // ==========================================
   return (
     <div className="min-h-screen bg-slate-900 text-white font-sans flex flex-col items-center justify-center p-2 sm:p-4">
-      
+
       <header className="w-full max-w-6xl mb-2 sm:mb-4 flex flex-wrap gap-2 sm:gap-4 justify-between items-center bg-slate-800 p-3 sm:p-4 rounded-xl shadow-lg border border-slate-700">
         <div className="flex items-center gap-2 sm:gap-4">
           <div className="flex items-center gap-2">
@@ -260,7 +266,7 @@ export default function App() {
             <span className="font-mono text-blue-400 text-sm sm:text-base font-bold tracking-widest select-all">{roomId}</span>
           </div>
         </div>
-        
+
         {gameState !== 'lobby' && (
           <div className="flex items-center gap-3 sm:gap-6">
             <div className="hidden sm:flex items-center px-3 py-1 bg-slate-700 rounded-full text-xs font-bold uppercase text-slate-300 tracking-wider">
@@ -282,7 +288,7 @@ export default function App() {
       </header>
 
       <div className="w-full max-w-6xl grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 max-h-[800px]">
-        
+
         {/* LEADERBOARD */}
         <div className="hidden md:flex flex-col bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-lg">
           <div className="bg-slate-950 p-4 border-b border-slate-700 flex items-center gap-2">
@@ -291,8 +297,8 @@ export default function App() {
           </div>
           <div className="p-2 flex-1 overflow-y-auto">
             {[...players].sort((a, b) => b.score - a.score).map((player, idx) => (
-              <div 
-                key={player.id} 
+              <div
+                key={player.id}
                 className={`flex justify-between items-center p-3 mb-2 rounded-lg ${player.id === myId ? 'bg-blue-600/20 border border-blue-500/30' : 'bg-slate-700/50'} ${player.hasGuessed ? 'border-green-500/50 bg-green-500/10' : ''}`}
               >
                 <div className="flex items-center gap-3">
@@ -309,7 +315,7 @@ export default function App() {
 
         {/* GAME CANVAS */}
         <div className="md:col-span-2 flex flex-col bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-lg relative">
-          
+
           {gameState === 'lobby' && (
             <div className="absolute inset-0 z-20 bg-slate-900/90 flex flex-col items-center justify-center p-4 sm:p-8 text-center overflow-y-auto">
               <h2 className="text-3xl sm:text-4xl font-extrabold mb-4 mt-auto sm:mt-0">Guess the Image</h2>
@@ -317,23 +323,35 @@ export default function App() {
                 Waiting for friends? Give them the Room Code: <span className="text-white font-mono bg-slate-800 px-2 py-1 rounded">{roomId}</span>
               </p>
 
-              <div className="mb-6 sm:mb-8 w-full max-w-xs text-left">
-                <label className="block text-xs sm:text-sm font-medium text-slate-300 mb-2">Select a Category</label>
-                <select 
-                  value={selectedCategory} 
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-600 text-white rounded-lg p-3 outline-none focus:border-blue-500 transition-colors cursor-pointer text-sm sm:text-base"
-                >
-                  <option value="random">Mix & Match (Random)</option>
-                  <option value="anime">Anime Characters</option>
-                  <option value="places">World Places</option>
-                  <option value="entertainment">Entertainment</option>
-                  <option value="flags">World Flags</option>
-                  <option value="pokemon">Pokémon (Gen 1)</option>
-                </select>
+              <div className="mb-6 sm:mb-8 w-full max-w-xs text-left space-y-4">
+                <div>
+                  <label className="block text-xs sm:text-sm font-medium text-slate-300 mb-2">Select a Category</label>
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 text-white rounded-lg p-3 outline-none focus:border-blue-500 transition-colors cursor-pointer text-sm sm:text-base"
+                  >
+                    <option value="pokemon">Pokémon (Gen 1)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs sm:text-sm font-medium text-slate-300 mb-2">Number of Rounds: <span className="text-white font-bold">{numberOfRounds}</span></label>
+                  <input
+                    type="range"
+                    min="3"
+                    max="10"
+                    value={numberOfRounds}
+                    onChange={(e) => setNumberOfRounds(parseInt(e.target.value))}
+                    className="w-full cursor-pointer accent-blue-500"
+                  />
+                  <div className="flex justify-between text-xs text-slate-500 px-1 mt-1 font-mono">
+                    <span>3</span>
+                    <span>10</span>
+                  </div>
+                </div>
               </div>
 
-              <button 
+              <button
                 onClick={startGame}
                 className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 sm:px-8 sm:py-4 rounded-full font-bold text-lg sm:text-xl transition-all hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(37,99,235,0.4)] mt-auto sm:mt-0 mb-4 sm:mb-0"
                 suppressHydrationWarning
@@ -356,9 +374,9 @@ export default function App() {
               <Trophy size={64} className="text-yellow-400 mb-4" />
               <h2 className="text-4xl font-extrabold mb-2">Game Over!</h2>
               <p className="text-slate-300 text-xl mb-8">
-                Winner: {players.length > 0 ? [...players].sort((a,b) => b.score - a.score)[0].name : "No one"}
+                Winner: {players.length > 0 ? [...players].sort((a, b) => b.score - a.score)[0].name : "No one"}
               </p>
-              <button 
+              <button
                 onClick={() => setGameState('lobby')}
                 className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3 rounded-full font-bold text-lg transition-all"
               >
@@ -369,34 +387,34 @@ export default function App() {
 
           {/* Image Display */}
           <div className="flex-1 min-h-[150px] sm:min-h-[300px] relative bg-black overflow-hidden flex items-center justify-center">
-             {gameState !== 'lobby' && currentImageUrl && (
-               <>
-                  <img 
-                    key={currentRound}
-                    src={currentImageUrl} 
-                    alt="Mystery"
-                    className="absolute inset-0 w-full h-full object-cover transition-all duration-1000 ease-linear"
-                    style={{ 
-                      filter: gameState === 'playing' ? `blur(${currentBlur}px)` : 'blur(0px)',
-                      transform: gameState === 'playing' ? `scale(${1 + (currentBlur / 100)})` : 'scale(1)'
-                    }}
-                  />
-                  
-                  {gameState === 'round_end' && (
-                    <div className="absolute bottom-0 left-0 right-0 bg-black/80 backdrop-blur-sm p-4 text-center border-t border-slate-700">
-                      <p className="text-green-400 font-bold text-xl uppercase">Round Ended!</p>
-                    </div>
-                  )}
-               </>
-             )}
+            {gameState !== 'lobby' && currentImageUrl && (
+              <>
+                <img
+                  key={currentRound}
+                  src={currentImageUrl}
+                  alt="Mystery"
+                  className="absolute inset-0 w-full h-full object-cover transition-all duration-1000 ease-linear"
+                  style={{
+                    filter: gameState === 'playing' ? `blur(${currentBlur}px)` : 'blur(0px)',
+                    transform: gameState === 'playing' ? `scale(${1 + (currentBlur / 100)})` : 'scale(1)'
+                  }}
+                />
+
+                {gameState === 'round_end' && (
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/80 backdrop-blur-sm p-4 text-center border-t border-slate-700">
+                    <p className="text-green-400 font-bold text-xl uppercase">Round Ended!</p>
+                  </div>
+                )}
+              </>
+            )}
           </div>
 
           {/* Chat Box */}
           <div className="h-48 sm:h-64 flex flex-col bg-slate-900 border-t border-slate-700">
             <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2">
               {chatMessages.map((msg) => (
-                <div 
-                  key={msg.id} 
+                <div
+                  key={msg.id}
                   className={`text-sm ${msg.isSystem ? (msg.isCorrect ? 'text-green-400 font-bold' : 'text-blue-400 font-medium') : 'text-slate-200'}`}
                 >
                   {!msg.isSystem && <span className="font-bold mr-2 text-slate-500">{msg.sender === me?.name ? 'You' : msg.sender}:</span>}
@@ -416,7 +434,7 @@ export default function App() {
                 className="flex-1 bg-slate-800 text-white px-4 py-2 rounded-lg border border-slate-700 focus:outline-none focus:border-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 autoComplete="off"
               />
-              <button 
+              <button
                 type="submit"
                 disabled={gameState !== 'playing' || !guessInput.trim() || me?.hasGuessed}
                 className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 text-white p-2 rounded-lg transition-colors"

@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const { Pool } = require('pg');
+require('dotenv').config({ path: '../.env' });
 
 const app = express();
 const server = http.createServer(app);
@@ -19,12 +20,12 @@ const pool = new Pool({
 });
 
 // Fallback data in case the database isn't connected yet
-const FALLBACK_IMAGES = [
-  { url: "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?auto=format&fit=crop&w=1000&q=80", answer: "Taj Mahal", aliases: ["the taj mahal", "taj", "tajmahal"], category: "places" },
-  { url: "https://images.unsplash.com/photo-1605130284535-11dd9eedc58a?auto=format&fit=crop&w=1000&q=80", answer: "Statue of Liberty", aliases: ["liberty statue", "statue of liberty"], category: "places" },
-  { url: "https://images.unsplash.com/photo-1578632767115-351597cf2477?auto=format&fit=crop&w=1000&q=80", answer: "Naruto", aliases: ["naruto uzumaki", "hokage"], category: "anime" },
-  { url: "https://images.unsplash.com/photo-1608889175123-8ee362201f81?auto=format&fit=crop&w=1000&q=80", answer: "Cinema", aliases: ["movies", "film", "entertainment"], category: "entertainment" }
-];
+// const FALLBACK_IMAGES = [
+//   { url: "https://images.unsplash.com/photo-1524492412937-b28074a5d7da?auto=format&fit=crop&w=1000&q=80", answer: "Taj Mahal", aliases: ["the taj mahal", "taj", "tajmahal"], category: "places" },
+//   { url: "https://images.unsplash.com/photo-1605130284535-11dd9eedc58a?auto=format&fit=crop&w=1000&q=80", answer: "Statue of Liberty", aliases: ["liberty statue", "statue of liberty"], category: "places" },
+//   { url: "https://images.unsplash.com/photo-1578632767115-351597cf2477?auto=format&fit=crop&w=1000&q=80", answer: "Naruto", aliases: ["naruto uzumaki", "hokage"], category: "anime" },
+//   { url: "https://images.unsplash.com/photo-1608889175123-8ee362201f81?auto=format&fit=crop&w=1000&q=80", answer: "Cinema", aliases: ["movies", "film", "entertainment"], category: "entertainment" }
+// ];
 
 // DATA STRUCTURES FOR MULTIPLE ROOMS
 const rooms = {}; // Maps roomId -> game state object
@@ -43,10 +44,11 @@ const startGameLoop = async (roomId) => {
   if (room.currentRound === 0) {
     try {
       let result;
+      const limit = room.totalRounds || 3;
       if (room.category === 'random') {
-        result = await pool.query('SELECT * FROM trivia_images ORDER BY RANDOM() LIMIT 3');
+        result = await pool.query('SELECT * FROM trivia_images ORDER BY RANDOM() LIMIT $1', [limit]);
       } else {
-        result = await pool.query('SELECT * FROM trivia_images WHERE category = $1 ORDER BY RANDOM() LIMIT 3', [room.category]);
+        result = await pool.query('SELECT * FROM trivia_images WHERE category = $1 ORDER BY RANDOM() LIMIT $2', [room.category, limit]);
       }
 
       if (result.rows.length > 0) {
@@ -61,7 +63,7 @@ const startGameLoop = async (roomId) => {
         fallbacks = FALLBACK_IMAGES.filter(img => img.category === room.category);
         if (fallbacks.length === 0) fallbacks = FALLBACK_IMAGES;
       }
-      room.activeImages = fallbacks.sort(() => 0.5 - Math.random()).slice(0, 3);
+      room.activeImages = fallbacks.sort(() => 0.5 - Math.random()).slice(0, room.totalRounds || 3);
     }
   }
 
@@ -94,7 +96,7 @@ const startGameLoop = async (roomId) => {
 const endRound = (roomId) => {
   const room = rooms[roomId];
   if (!room || room.status !== 'playing') return;
-  
+
   clearInterval(room.timerInterval);
   room.status = 'round_end';
 
@@ -131,6 +133,7 @@ io.on('connection', (socket) => {
       players: [],
       activeImages: [],
       category: 'random',
+      totalRounds: 3,
       timerInterval: null
     };
     joinRoomLogic(socket, roomId, playerName);
@@ -170,13 +173,15 @@ io.on('connection', (socket) => {
   };
 
   // GAME CONTROLS
-  socket.on('start_game', (selectedCategory = 'random') => {
+  socket.on('start_game', (selectedCategory = 'random', totalRounds = 3) => {
     const roomId = socketRoomMap[socket.id];
     if (roomId && rooms[roomId].status === 'lobby') {
       rooms[roomId].status = 'starting'; // Prevent double clicks
       rooms[roomId].currentRound = 0;
       rooms[roomId].category = selectedCategory.toLowerCase();
+      rooms[roomId].totalRounds = Math.min(Math.max(parseInt(totalRounds) || 3, 3), 10);
       rooms[roomId].players.forEach(p => p.score = 0);
+      io.to(roomId).emit('game_starting');
       startGameLoop(roomId);
     }
   });

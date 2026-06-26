@@ -1,7 +1,8 @@
+require('dotenv').config({ path: '../.env' });
 const { Pool } = require('pg');
 
 const pool = new Pool({
-  connectionString: "postgresql://neondb_owner:npg_EcFTDtr4S8sI@ep-fragrant-meadow-aohdacvd-pooler.c-2.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require",
+  connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false }
 });
 
@@ -42,7 +43,7 @@ async function seed() {
 
       await pool.query(
         'INSERT INTO trivia_images (url, answer, aliases, category) VALUES ($1, $2, $3, $4)',
-        [url, answer, JSON.stringify(aliases), 'pokemon']
+        [url, answer, aliases, 'pokemon']
       );
       inserted++;
       if (inserted % 25 === 0) console.log(`Inserted ${inserted}...`);
