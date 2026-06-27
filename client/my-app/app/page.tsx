@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Clock, Users, Trophy, Image as ImageIcon, KeyRound, PlusCircle } from 'lucide-react';
+import { Send, Clock, Users, Trophy, Image as ImageIcon, KeyRound, PlusCircle, Menu, X } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
@@ -65,6 +65,7 @@ export default function App() {
   const [numberOfRounds, setNumberOfRounds] = useState<number>(3);
   const [activeCategory, setActiveCategory] = useState<string>('pokemon');
 
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -72,15 +73,39 @@ export default function App() {
   }, [chatMessages]);
 
   useEffect(() => {
+    const attemptRejoin = () => {
+      const savedRoom = sessionStorage.getItem('unblur_roomId');
+      const savedName = sessionStorage.getItem('unblur_playerName');
+      if (savedRoom && savedName) {
+        socket.emit('rejoin_room', savedRoom, savedName);
+      }
+    };
+
     socket.on('connect', () => {
       setMyId(socket.id as string);
+      attemptRejoin();
     });
+
+    // If socket is already connected (missed the 'connect' event), rejoin now
+    if (socket.connected) {
+      setMyId(socket.id as string);
+      attemptRejoin();
+    }
 
     // Room Navigation Events
     socket.on('joined_room', (id: string) => {
       setRoomId(id);
       setCurrentView('room');
       setErrorMsg('');
+      // Persist session
+      sessionStorage.setItem('unblur_roomId', id);
+      if (playerName.trim()) sessionStorage.setItem('unblur_playerName', playerName.trim());
+    });
+
+    socket.on('rejoin_failed', () => {
+      // Room no longer exists, clear session
+      sessionStorage.removeItem('unblur_roomId');
+      sessionStorage.removeItem('unblur_playerName');
     });
 
     socket.on('error_message', (msg: string) => {
@@ -134,6 +159,7 @@ export default function App() {
     return () => {
       socket.off('connect');
       socket.off('joined_room');
+      socket.off('rejoin_failed');
       socket.off('error_message');
       socket.off('initial_state');
       socket.off('leaderboard_update');
@@ -149,6 +175,7 @@ export default function App() {
   // Actions
   const handleCreateRoom = () => {
     if (!playerName.trim()) { setErrorMsg("Please enter your name first."); return; }
+    sessionStorage.setItem('unblur_playerName', playerName.trim());
     socket.emit('create_room', playerName.trim());
   };
 
@@ -255,8 +282,15 @@ export default function App() {
 
       <header className="w-full max-w-6xl mb-2 sm:mb-4 flex flex-wrap gap-2 sm:gap-4 justify-between items-center bg-slate-800 p-3 sm:p-4 rounded-xl shadow-lg border border-slate-700">
         <div className="flex items-center gap-2 sm:gap-4">
+          {/* HAMBURGER - mobile only */}
+          <button
+            className="md:hidden text-slate-300 hover:text-white p-1 transition-colors"
+            onClick={() => setMobileMenuOpen(prev => !prev)}
+          >
+            {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
           <div className="flex items-center gap-2">
-            <ImageIcon className="text-blue-400 w-6 h-6 sm:w-7 sm:h-7" />
+            <ImageIcon className="text-blue-400 w-6 h-6 sm:w-7 sm:h-7 hidden md:block" />
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight hidden sm:block">Unblur<span className="text-blue-400">.io</span></h1>
           </div>
           {/* ROOM CODE DISPLAY */}
@@ -313,6 +347,50 @@ export default function App() {
           </div>
         </div>
 
+        {/* MOBILE SLIDE-IN LEADERBOARD */}
+        <div
+          className={`md:hidden fixed inset-0 z-50 transition-all duration-300 ease-in-out ${mobileMenuOpen ? 'visible' : 'invisible'}`}
+        >
+          {/* Backdrop */}
+          <div
+            className={`absolute inset-0 bg-black/60 transition-opacity duration-300 ${mobileMenuOpen ? 'opacity-100' : 'opacity-0'}`}
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          {/* Drawer */}
+          <div
+            className={`absolute top-0 left-0 h-full w-64 bg-slate-800 border-r border-slate-700 shadow-2xl flex flex-col transition-transform duration-300 ease-in-out ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}
+          >
+            <div className="p-4 border-b border-slate-700 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Users className="text-slate-400" size={20} />
+                <h2 className="font-semibold">Players ({players.length})</h2>
+              </div>
+              <button
+                className="text-slate-400 hover:text-white p-1 transition-colors"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-3 flex-1 overflow-y-auto space-y-2">
+              {[...players].sort((a, b) => b.score - a.score).map((player, idx) => (
+                <div
+                  key={player.id}
+                  className={`flex justify-between items-center px-3 py-3 rounded-lg ${player.id === myId ? 'bg-blue-600/20 border border-blue-500/30' : 'bg-slate-700/50'} ${player.hasGuessed ? 'border-green-500/50 bg-green-500/10' : ''}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-slate-400 font-bold w-4">{idx + 1}.</span>
+                    <span className={`font-medium truncate max-w-[120px] ${player.id === myId ? 'text-blue-400' : 'text-slate-200'}`}>
+                      {player.id === myId ? 'You' : player.name}
+                    </span>
+                  </div>
+                  <span className="font-mono text-yellow-400 font-bold">{player.score}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
         {/* GAME CANVAS */}
         <div className="md:col-span-2 flex flex-col bg-slate-800 rounded-xl border border-slate-700 overflow-hidden shadow-lg relative">
 
@@ -332,6 +410,7 @@ export default function App() {
                     className="w-full bg-slate-800 border border-slate-600 text-white rounded-lg p-3 outline-none focus:border-blue-500 transition-colors cursor-pointer text-sm sm:text-base"
                   >
                     <option value="pokemon">Pokémon</option>
+                    <option value="flags">Country Flags</option>
                   </select>
                 </div>
                 <div>
@@ -393,7 +472,7 @@ export default function App() {
                   key={currentRound}
                   src={currentImageUrl}
                   alt="Mystery"
-                  className="absolute inset-0 w-full h-full object-cover transition-all duration-1000 ease-linear"
+                  className={`absolute inset-0 w-full h-full ${activeCategory === 'flags' ? 'object-contain' : 'object-cover'} transition-all duration-1000 ease-linear`}
                   style={{
                     filter: gameState === 'playing' ? `blur(${currentBlur}px)` : 'blur(0px)',
                     transform: gameState === 'playing' ? `scale(${1 + (currentBlur / 100)})` : 'scale(1)'

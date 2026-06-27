@@ -30,6 +30,7 @@ const pool = new Pool({
 // DATA STRUCTURES FOR MULTIPLE ROOMS
 const rooms = {}; // Maps roomId -> game state object
 const socketRoomMap = {}; // Maps socket.id -> roomId for quick lookups
+const disconnectedPlayers = {}; // Maps `${roomId}:${playerName}` -> { score, timestamp }
 
 // Helper to generate a 4-letter room code
 const generateRoomCode = () => Math.random().toString(36).substring(2, 6).toUpperCase();
@@ -149,13 +150,36 @@ io.on('connection', (socket) => {
     }
   });
 
-  const joinRoomLogic = (socket, roomId, playerName) => {
+  // REJOIN ROOM (on page refresh)
+  socket.on('rejoin_room', (code, playerName) => {
+    const roomId = code.toUpperCase().trim();
+    if (rooms[roomId]) {
+      joinRoomLogic(socket, roomId, playerName, true);
+    } else {
+      socket.emit('rejoin_failed');
+    }
+  });
+
+  const joinRoomLogic = (socket, roomId, playerName, isRejoin = false) => {
     socket.join(roomId);
     socketRoomMap[socket.id] = roomId;
 
     const room = rooms[roomId];
+
+    // Cancel pending room deletion if someone is joining back
+    if (room._deleteTimeout) {
+      clearTimeout(room._deleteTimeout);
+      delete room._deleteTimeout;
+    }
+
     const name = (playerName && playerName.trim()) ? playerName.trim().substring(0, 12) : `Player_${socket.id.substring(0, 4)}`;
-    const newPlayer = { id: socket.id, name, score: 0, hasGuessed: false };
+
+    // Check if this player had a saved score from a recent disconnect
+    const dcKey = `${roomId}:${name}`;
+    const savedScore = disconnectedPlayers[dcKey]?.score || 0;
+    delete disconnectedPlayers[dcKey];
+
+    const newPlayer = { id: socket.id, name, score: savedScore, hasGuessed: false };
     room.players.push(newPlayer);
 
     socket.emit('joined_room', roomId);
@@ -169,7 +193,11 @@ io.on('connection', (socket) => {
     });
 
     io.to(roomId).emit('leaderboard_update', room.players);
-    io.to(roomId).emit('chat_message', { sender: "System", text: `${newPlayer.name} joined the room.`, isSystem: true });
+    if (!isRejoin) {
+      io.to(roomId).emit('chat_message', { sender: "System", text: `${newPlayer.name} joined the room.`, isSystem: true });
+    } else {
+      io.to(roomId).emit('chat_message', { sender: "System", text: `${newPlayer.name} reconnected.`, isSystem: true });
+    }
   };
 
   // GAME CONTROLS
@@ -221,15 +249,28 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const roomId = socketRoomMap[socket.id];
     if (roomId && rooms[roomId]) {
+      const player = rooms[roomId].players.find(p => p.id === socket.id);
+
+      // Save score for reconnection (expires after 60s)
+      if (player) {
+        const dcKey = `${roomId}:${player.name}`;
+        disconnectedPlayers[dcKey] = { score: player.score, timestamp: Date.now() };
+        setTimeout(() => { delete disconnectedPlayers[dcKey]; }, 60000);
+      }
+
       rooms[roomId].players = rooms[roomId].players.filter(p => p.id !== socket.id);
       io.to(roomId).emit('leaderboard_update', rooms[roomId].players);
       io.to(roomId).emit('chat_message', { sender: "System", text: `A player left the room.`, isSystem: true });
 
-      // If room is empty, delete it to save server memory!
+      // If room is empty, schedule deletion (grace period for reconnects)
       if (rooms[roomId].players.length === 0) {
         clearInterval(rooms[roomId].timerInterval);
-        delete rooms[roomId];
-        console.log(`Room ${roomId} deleted (empty)`);
+        rooms[roomId]._deleteTimeout = setTimeout(() => {
+          if (rooms[roomId] && rooms[roomId].players.length === 0) {
+            delete rooms[roomId];
+            console.log(`Room ${roomId} deleted (empty after grace period)`);
+          }
+        }, 15000); // 15 second grace period
       }
     }
     delete socketRoomMap[socket.id];
